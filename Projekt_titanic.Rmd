@@ -1,0 +1,276 @@
+---
+title: "Projekt_titanic"
+output: html_document
+date: "2024-11-25"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+
+library(titanic)
+
+# Wczytanie danych Titanic
+data_titanic <- titanic::titanic_train
+```
+
+```{r}
+
+head(data_titanic)
+
+# Sprawdzenie struktury danych
+str(data_titanic)
+
+# Podstawowe statystyki opisowe
+summary(data_titanic)
+
+
+
+
+```
+
+Krok 1 - ocena ważności predyktorów:
+
+```{r}
+#rozkład przeżycia w zależności od płci
+table(data_titanic$Survived, data_titanic$Sex)
+
+#rozkład przeżycia w zależności od klasy biletu #(1 = pierwsza, 2 = druga, 3 = trzecia)
+table(data_titanic$Survived, data_titanic$Pclass)
+
+# Wizualizacja zależności między wiekiem a przeżyciem
+library(ggplot2)
+ggplot(data_titanic, aes(x = Age, fill = factor(Survived))) +
+  geom_histogram(bins = 20, position = "dodge") +
+  labs(title = "Rozkład wieku pasażerów względem przeżycia", x = "Wiek", fill = "Przeżycie (0/1)")
+
+```
+
+Zastosuję regresję logistyczną, aby sprawdzić współczynniki i istotność
+zmiennych.
+
+```{r}
+# Regresja logistyczna z wszystkimi zmiennymi
+model_logistic_full <- glm(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+                           data = data_titanic, 
+                           family = binomial)
+
+# Podsumowanie wyników
+summary(model_logistic_full)
+
+
+```
+
+## Wpływ predyktorów w modelach
+
+### Regresja logistyczna
+
+Współczynniki regresji logistycznej wskazują na następujące
+zależności: - **Sex (płeć)**: Bycie mężczyzną zmniejsza szanse na
+przeżycie (`Estimate = -2.64`). - **Age (wiek)**: Każdy dodatkowy rok
+życia zmniejsza szansę przeżycia (`Estimate = -0.043`). - **Pclass
+(klasa biletu)**: Im wyższa klasa biletu (1 -\> 3), tym mniejsze szanse
+na przeżycie (`Estimate = -1.2`). - **SibSp (rodzina)**: Obecność
+rodzeństwa/małżonka minimalnie zmniejsza szanse przeżycia
+(`Estimate = -0.36`).
+
+```{r}
+library(randomForest)
+# Las losowy z wszystkimi zmiennymi
+rf_model_full <- randomForest(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+                              data = data_titanic, 
+                              na.action = na.omit, # Automatyczne usunięcie braków
+                              importance = TRUE)
+
+# Ranking zmiennych
+importance(rf_model_full) # Ważność zmiennych
+varImpPlot(rf_model_full) # Wykres ważności
+
+
+```
+
+### Las losowy
+
+Ranking waznosci predyktorow (wg lasu losowego): 1. **Sex (płeć)** 2.
+**Pclass (klasa biletu)** 3. **Age (wiek)** 4. **Fare (cena biletu)** 5.
+**SibSp (rodzina)**
+
+Wyniki te potwierdzają kluczowe znaczenie płci, klasy biletu i wieku w
+przewidywaniu przeżycia
+
+Wnioski po zastosowaniu obu modeli:
+
+Najważniejsze zmienne: 1. Sex - istotny w regresji logistycznej i rf 2.
+Age - istotny w rl i rf 3. Pclass - istotny w rl i rf 4. Fare -
+nieistotny w rl, ale istotny w rf 5. SibSP - istotny w rl, srednio
+istotny w rf Pomijam pozostałe predyktory, ponieważ są nieważne przy
+analizie.
+
+Dalsze kroki: Czyszczenie danych do przeprowadzenia dalszych analiz:
+
+```{r}
+# Usunięcie wierszy z brakami w kolumnach
+data_titanic <- na.omit(data_titanic[, c("Survived", "Sex", "Age", "Pclass", "Fare", "SibSp")])
+
+# Sprawdzenie liczby obserwacji po usunięciu braków
+nrow(data_titanic) 
+
+#Sprawdzenie ilosci pustych wierszy w wybranym datasecie
+colSums(is.na(data_titanic))
+
+```
+
+```{r}
+# Zakodowanie zmiennej Sex
+data_titanic$Sex <- ifelse(data_titanic$Sex == "male", 0, 1)
+
+# Sprawdzenie unikalnych wartości
+table(data_titanic$Sex) # male <- 0, female <- 1
+
+
+
+```
+
+```{r}
+#Podglad danych do dalszej analizy: 
+head(data_titanic)
+str(data_titanic)
+```
+
+```{r}
+library(tree) 
+
+# Przekształcenie zmiennej Survived na faktor
+data_titanic$Survived <- as.factor(data_titanic$Survived)
+
+tree_model <- tree(Survived ~ Sex + Age + Pclass + Fare + SibSp, data = data_titanic)
+
+#podglad struktury
+summary(tree_model)
+
+#wizualizacja
+plot(tree_model)
+text(tree_model, pretty=0, cex=0.8)
+
+```
+
+```{r}
+# Predykcje na zbiorze danych
+pred_tree <- predict(tree_model, data_titanic, type = "class")
+
+# Macierz pomyłek
+conf_matrix <- table(Predicted = pred_tree, Actual = data_titanic$Survived)
+print(conf_matrix)
+
+# Wyliczenie dokładności
+accuracy_tree <- mean(pred_tree == data_titanic$Survived)
+print(paste("Dokładność drzewa decyzyjnego:", round(accuracy_tree * 100, 2), "%"))
+
+
+```
+
+```{r}
+# Ustawienie ziarna losowego dla powtarzalności wyników
+set.seed(123)
+
+# Podział danych na zbiór treningowy (70%) i testowy (30%)
+train_indices <- sample(1:nrow(data_titanic), size = 0.7 * nrow(data_titanic))
+train_data <- data_titanic[train_indices, ]
+test_data <- data_titanic[-train_indices, ]
+
+# Sprawdzenie liczby obserwacji
+nrow(train_data) # Liczba w zbiorze treningowym
+nrow(test_data)  # Liczba w zbiorze testowym
+
+```
+
+```{r}
+# Budowa drzewa decyzyjnego na zbiorze treningowym
+tree_model <- tree(Survived ~ Sex + Age + Pclass + Fare + SibSp, data = train_data)
+
+# Predykcje na zbiorze testowym
+pred_tree <- predict(tree_model, test_data, type = "class")
+
+# Macierz pomyłek dla drzewa decyzyjnego
+conf_matrix_tree <- table(Predicted = pred_tree, Actual = test_data$Survived)
+print(conf_matrix_tree)
+
+# Dokładność drzewa decyzyjnego
+accuracy_tree <- mean(pred_tree == test_data$Survived)
+print(paste("Dokładność drzewa decyzyjnego na zbiorze testowym:", round(accuracy_tree * 100, 2), "%"))
+
+```
+
+```{r}
+# Budowa modelu regresji logistycznej
+logistic_model <- glm(Survived ~ Sex + Age + Pclass + Fare + SibSp, data = train_data, family = binomial)
+
+# Predykcje na zbiorze testowym (prawdopodobieństwa)
+pred_logistic <- predict(logistic_model, test_data, type = "response")
+
+# Zamiana prawdopodobieństw na klasy (0.5 jako próg)
+pred_logistic_class <- ifelse(pred_logistic > 0.5, 1, 0)
+
+# Macierz pomyłek dla regresji logistycznej
+conf_matrix_logistic <- table(Predicted = pred_logistic_class, Actual = test_data$Survived)
+print(conf_matrix_logistic)
+
+# Dokładność regresji logistycznej
+accuracy_logistic <- mean(pred_logistic_class == test_data$Survived)
+print(paste("Dokładność regresji logistycznej na zbiorze testowym:", round(accuracy_logistic * 100, 2), "%"))
+
+```
+
+```{r}
+# Budowa lasu losowego
+rf_model <- randomForest(Survived ~ Sex + Age + Pclass + Fare + SibSp, data = train_data, importance = TRUE)
+
+# Predykcje na zbiorze testowym
+pred_rf <- predict(rf_model, test_data)
+
+# Macierz pomyłek dla lasu losowego
+conf_matrix_rf <- table(Predicted = pred_rf, Actual = test_data$Survived)
+print(conf_matrix_rf)
+
+# Dokładność lasu losowego
+accuracy_rf <- mean(pred_rf == test_data$Survived)
+print(paste("Dokładność lasu losowego na zbiorze testowym:", round(accuracy_rf * 100, 2), "%"))
+```
+
+```{r}
+# Porównanie dokładności modeli
+accuracy_df <- data.frame(
+  Model = c("Drzewo decyzyjne", "Regresja logistyczna", "Las losowy"),
+  Accuracy = c(81.86, 81.4, 84.65)
+)
+
+library(ggplot2)
+ggplot(accuracy_df, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Porównanie dokładności modeli", x = "Model", y = "Dokładność (%)") +
+  theme_minimal()
+```
+
+## Podsumowanie
+
+Projekt miał na celu analizę danych pasażerów Titanica w celu
+przewidzenia ich przeżycia na podstawie dostępnych cech, takich jak
+płeć, wiek, klasa biletu i inne. Zrealizowano to za pomocą trzech
+modeli: regresji logistycznej, drzewa decyzyjnego oraz lasu losowego.
+
+**Kluczowe wnioski:** 1. **Najważniejsze predyktory:** - **Płeć**: Bycie
+kobietą znacząco zwiększało szanse na przeżycie. - **Wiek**: Młodsi
+pasażerowie mieli większe szanse na przeżycie. - **Klasa biletu**:
+Pasażerowie klasy pierwszej mieli najwyższe szanse na przeżycie.
+
+2.  **Porównanie modeli:**
+    -   Las losowy osiągnął najwyższą dokładność (84.65%), przewyższając
+        regresję logistyczną i drzewo decyzyjne.
+    -   Modele różniły się w ważności predyktorów, co sugeruje ich różne
+        podejścia do analizy danych.
+
+**Znaczenie analizy:** Analiza taka jak ta może być wykorzystywana do
+nauki modelowania danych i zrozumienia, jak różne cechy wpływają na
+wyniki. Jest to również dobry przykład porównania różnych modeli i ich
+zastosowań w praktyce.
