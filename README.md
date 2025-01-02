@@ -49,8 +49,9 @@ titanic-analysis-project/
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/titanic-analysis-project.git
-   cd titanic-analysis-project
+   git clone https://github.com/HMurawski/titanic-analysis-project_R.git
+   cd titanic-analysis-project_R
+
    ```
 
 2. Open the R Markdown file (`project_titanic.Rmd`) in RStudio.
